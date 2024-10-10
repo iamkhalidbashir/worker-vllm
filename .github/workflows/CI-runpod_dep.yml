@@ -1,50 +1,56 @@
-name: CI | Update runpod package version
+name: CI - Docker Build and RunPod Deployment
 
 on:
-  repository_dispatch:
-    types: [python-package-release]
-
   push:
-    branches: ["main"]
-
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: amoxt/runpod-worker-vllm
+
 jobs:
-  check_dep:
+  build-and-push:
     runs-on: ubuntu-latest
-    name: Check python requirements file and update
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      - name: Check for new package version and update
-        run: |
-          # Get current version
-          current_version=$(grep -oP 'runpod==\K[^"]+' ./builder/requirements.txt)
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-          # Get new version
-          new_version=$(curl -s https://pypi.org/pypi/runpod/json | jq -r .info.version)
-          echo "NEW_VERSION_ENV=$new_version" >> $GITHUB_ENV
+    - name: Extract metadata (tags, labels) for Docker
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-          if [ -z "$new_version" ]; then
-              echo "Failed to fetch the new version."
-              exit 1
-          fi
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
 
-          # Check if the version is already up-to-date
-          if [ "$current_version" = "$new_version" ]; then
-              echo "The package version is already up-to-date."
-              exit 0
-          fi
-
-          # Update requirements.txt
-          sed -i "s/runpod==.*/runpod==$new_version/" ./builder/requirements.txt
-
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: Update package version
-          title: Update runpod package version
-          body: The package version has been updated to ${{ env.NEW_VERSION_ENV }}
-          branch: runpod-package-update
+#   deploy-to-runpod:
+#     needs: build-and-push
+#     runs-on: ubuntu-latest
+    
+#     steps:
+#     - name: Deploy to RunPod
+#       env:
+#         RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+#         RUNPOD_ENDPOINT: ${{ secrets.RUNPOD_ENDPOINT }}
+#       run: |
+#         # Install RunPod CLI (if available) or use API calls
+#         # This is a placeholder - you'll need to implement the actual deployment logic
+#         echo "Deploying to RunPod..."
+#         # Example: curl -X POST -H "Authorization: Bearer $RUNPOD_API_KEY" -H "Content-Type: application/json" -d '{"podType": "YOUR_POD_TYPE", "imageName": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"}' $RUNPOD_ENDPOINT
+#         # Add your RunPod deployment commands here
