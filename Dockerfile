@@ -1,7 +1,8 @@
-FROM nvidia/cuda:12.1.0-base-ubuntu22.04 
+# Build stage
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04 as builder
 
 RUN apt-get update -y \
-    && apt-get install -y python3-pip git \
+    && apt-get install -y python3-pip python3-dev git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ldconfig /usr/local/cuda-12.1/compat/
@@ -23,6 +24,20 @@ RUN git clone https://github.com/vllm-project/vllm.git && \
 # Install FlashInfer
 RUN python3 -m pip install flashinfer -i https://flashinfer.ai/whl/cu121/torch2.3
 
+# Production stage
+FROM nvidia/cuda:12.1.0-base-ubuntu22.04
+
+# Copy Python and installed packages from builder
+COPY --from=builder /usr/local /usr/local
+COPY --from=builder /usr/lib /usr/lib
+
+RUN ldconfig /usr/local/cuda-12.1/compat/
+
+# Install runtime dependencies
+RUN apt-get update -y \
+    && apt-get install -y python3 libpython3.10 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Setup for Option 2: Building the Image with the Model included
 ARG MODEL_NAME=""
 ARG TOKENIZER_NAME=""
@@ -43,7 +58,6 @@ ENV MODEL_NAME=$MODEL_NAME \
     HF_HUB_ENABLE_HF_TRANSFER=1 
 
 ENV PYTHONPATH="/:/vllm-workspace"
-
 
 COPY src /src
 RUN --mount=type=secret,id=HF_TOKEN,required=false \
